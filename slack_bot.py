@@ -103,7 +103,7 @@ def git_checkout_branch(branch_name, create_branch_if_not_there=False):
 
 def git_create_branch(branch_name):
        try:
-              git_checkout_branch(environment, True)
+              git_checkout_branch(branch_name, True)
        except:
               raise GitBranchCreationFailure
 
