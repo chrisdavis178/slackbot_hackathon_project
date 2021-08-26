@@ -128,7 +128,7 @@ def run_deployment_git_commands(branch_name):
               git_delete_branch(branch_name)
               git_checkout_branch(MASTER_BRANCH)
               git_pull(MASTER_BRANCH)
-              git_checkout_branch(branch_name)
+              git_create_branch(branch_name)
               git_push(branch_name)
        except GitBranchDeletionFailure:
               pass
