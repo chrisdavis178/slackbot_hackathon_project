@@ -288,6 +288,7 @@ def qa_git_push():
           print_msg("#chamber-of-secrets",":ghost: Whoops!!! Couldnt find the branch '{}' in the list ".format(branch))
           return Response(), 200 
         curr_branch = branch_list[branch]
+        cmd = str(cmd)
         if cmd.lower() == "yes":              
           scheduletime=datetime.today().replace(hour=int(shour), minute=int(smin), second =0, microsecond=0)
           jobid = s.enterabs(scheduletime.timestamp(), 1, run_deployment_git_commands, argument = (branch,))
@@ -357,6 +358,55 @@ def schedule_loop():
    while True:
       schedule.run_pending()
       time.sleep(1)
+
+@app.route('/qa_owners', methods=['GET', 'POST'])
+def qa_owners():
+       data = request.form
+       
+       def current_owners():
+              owners = []
+              #for owner in env_file["owners_list"]["members"]:
+              #       owners.append(owner)       
+              env_file["owners_list"]["members"][0]= "• "+env_file["owners_list"]["members"][0]
+              return print_msg("#chamber-of-secrets", "\n • ".join(env_file["owners_list"]["members"]))
+              
+       def add_new_owner(user):
+              default_user_settings = {
+                     "current_release_lead": "true",
+              }
+              
+              env_file['owners_list'][user] = default_user_settings
+              return print_msg("{} has been added as an owner to owner's list.".format(user))
+
+       def remove_owner(user):
+              for owner in env_file['owners_list']:
+                     if owner == user:
+                            env_file['owners_list'].pop(owner)
+              return print_msg("{} has been removed from owners list.".format(user))
+
+       def set_current_release_lead(user):
+              if user not in env_file['owners_list']:
+                     return print_msg('#chamber-of-secrets', "This user is not authorized to manage releases. Please add them to owners list.")
+              else:
+                     for owner in env_file['owners_list']:
+                            if owner['current_release_lead'] == 'true':
+                                   owner['current_release_lead'] = 'false'
+                     env_file['owners'][user]['current_release_lead'] = "true"
+                     return print_msg('#chamber-of-secrets', "{} has been set as release lead to manage system-test branches.")
+       
+       def get_current_release_lead():
+              return print_msg("#chamber-of-secrets", '{}'.format(env_file['owners_list']['current_release_lead']))
+
+       text = data['text']
+       if text == "current owners":
+              current_owners()
+
+       elif text == "current release lead":
+              get_current_release_lead()
+       
+       else: 
+              print_msg("#chamber-of-secrets", "Invalid commmands received. Valid commands include: owners")
+       return Response(), 200
 
 if __name__=='__main__':
   initialize_branch()
