@@ -90,6 +90,55 @@ def send_scheduled_messages_channel(message):
               msg_ids.append(msg_id)
        return msg_ids
 
+@app.route('/qa_owners', methods=['GET', 'POST'])
+def qa_owners():
+       data = request.form
+       
+       def current_owners():
+              owners = []
+              for owner in env_file["owners_list"]:
+                     owners.append(owner)       
+              
+              return print_msg("#chamber-of-secrets", owners)
+              
+       def add_new_owner(user):
+              default_user_settings = {
+                     "current_release_lead": "true",
+              }
+              
+              env_file['owners_list'][user] = default_user_settings
+              return print_msg("{} has been added as an owner to owner's list.".format(user))
+
+       def remove_owner(user):
+              for owner in env_file['owners_list']:
+                     if owner == user:
+                            env_file['owners_list'].pop(owner)
+              return print_msg("{} has been removed from owners list.".format(user))
+
+       def set_current_release_lead(user):
+              if user not in env_file['owners_list']:
+                     return print_msg('#chamber-of-secrets', "This user is not authorized to manage releases. Please add them to owners list.")
+              else:
+                     for owner in env_file['owners_list']:
+                            if owner['current_release_lead'] == 'true':
+                                   owner['current_release_lead'] = 'false'
+                     env_file['owners'][user]['current_release_lead'] = "true"
+                     return print_msg('#chamber-of-secrets', "{} has been set as release lead to manage system-test branches.")
+       
+       def get_current_release_lead():
+              for owner in env_file['owners_list']:
+                     if owner['current_release_lead'] == "true":
+                            return print_msg("#chamber-of-secrets", owner)
+
+       text = data['text']
+       if text == "current owners":
+              current_owners()
+
+       elif text == "current release lead":
+              get_current_release_lead()
+       
+       else: 
+              print_msg("#chamber-of-secrets", "Invalid commmands received. Valid commands include: owners")
 
 if __name__=='__main__':
        send_scheduled_messages_channel(env_file['scheduled_message'])
