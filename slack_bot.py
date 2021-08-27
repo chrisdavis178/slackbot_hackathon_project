@@ -17,6 +17,22 @@ bot_id = client.api_call("auth.test")["user_id"]
 s = sched.scheduler(time.time, time.sleep)
 branch_list = {}
 
+INTEGRATION_BRANCH = 'integration'
+UAT_US_BRANCH = 'us-uat'
+UAT_ZURICH_BRANCH = 'zurich-uat'
+MASTER_BRANCH = 'main'
+class GitBranchDeletionFailure(Exception):
+       pass
+class GitBranchCheckoutFailure(Exception):
+       pass
+class GitPullFailure(Exception):
+       pass
+class GitPushFailure(Exception):
+       pass
+class GitBranchCreationFailure(Exception):
+       pass
+class CommandFailed(Exception):
+       pass
 class BranchInfo:
 
   DIVIDER = {'type' : 'divider'}
@@ -29,6 +45,7 @@ class BranchInfo:
     self.jobid = None
     self.icon_emoji = ':rooster:'
     self.timestamp = ''
+    self.deployed = None
 
   def get_message(self):
     return {
@@ -53,18 +70,20 @@ class BranchInfo:
       text['Updated by'] = self.updated_by
       text['Updated on'] = self.timestamp
 
-    if self.scheduled:
+    if not self.deployed and self.scheduled:
       text['Scheduled at'] = self.scheduled_at
-
+      
+    if self.deployed:
+      text['Deployed'] = self.deployed
+     
     return {'type': 'section', 'text': {'type': 'mrkdwn', 'text': json.dumps(text, indent=4, sort_keys=True)  }}
 
   def _get_status(self):
     checkmark = ':x:'
-    text = f'{checkmark}' 
-    if self.scheduled:
+    if self.scheduled or self.deployed:
       checkmark = ':white_check_mark:'
-      text = f"{checkmark}"
 
+    text = f"{checkmark}"
     return {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text }}
 
 def initialize_branch():
@@ -73,21 +92,25 @@ def initialize_branch():
        branch_list[b] = branch_info
 
 def execute_cmds(command, shellenable=False):
+    print ("INSIDE Executing")
     if not shellenable:
        cmd=shlex.split(command)
     else:
+       print("executing")
        cmd=command
     query = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=shellenable)
     try:
         out,err = query.communicate()
+        print (str(out))
         if query.returncode!=0:
+            print("stderr:"+str(err.strip()) + " :stdout:" + str(out.strip()))
             #return (query.returncode, "stderr:"+err.strip() + " :stdout:" + out.strip())
-            return (query.returncode, err.strip())
+            raise CommandFailed
         else:
             return (0,out)
     except Exception as e:
         query.terminate()
-        return (1,str(e))
+        raise CommandFailed
 
 def print_msg(channel2,msg):
        client.chat_postMessage(channel=channel2, text=msg)
@@ -103,7 +126,6 @@ def git_commands(gitcmds):
        return status
 
 def push_changes():
-       
        UAT_status = git_commands(env_file["US-UAT_commands"])
        #ZAT_status = git_commands(env_file["Zurich-UAT_commands"])
        #print("yes")
@@ -113,6 +135,101 @@ def push_changes():
 def execute_commands():
   print_msg("#chamber-of-secrets","Excuting shell commands place holder ")
 
+def git_delete_branch(branch_name):
+       try:
+              execute_cmds('git branch -d %s' % branch_name)
+       except:
+              raise GitBranchDeletionFailure
+
+def git_checkout_branch(branch_name, create_branch_if_not_there=False):
+       try:
+              if create_branch_if_not_there:
+                     execute_cmds('git checkout -b %s' % branch_name)
+              else:
+                     execute_cmds('git checkout %s' % branch_name)
+       except:
+              raise GitBranchCheckoutFailure
+
+def git_create_branch(branch_name):
+       try:
+              git_checkout_branch(branch_name, True)
+       except:
+              raise GitBranchCreationFailure
+
+def git_pull(branch_name):
+       try:
+              execute_cmds('git pull origin %s' % branch_name)
+       except:
+              raise GitPullFailure
+
+def git_push(branch_name):
+       try:
+              execute_cmds('git push -f origin %s' % branch_name)
+       except:
+              raise GitPushFailure
+
+def run_deployment_git_commands(branch_name):
+       try:
+              print("Executing Commands")
+              git_delete_branch(branch_name)
+              git_checkout_branch(MASTER_BRANCH)
+              git_pull(MASTER_BRANCH)
+              git_create_branch(branch_name)
+              git_push(branch_name)
+
+              branch_list[branch_name].deployed = ':large_green_circle:'
+       except GitBranchDeletionFailure:
+              pass
+       except GitBranchCheckoutFailure:
+              pass
+       except GitPullFailure:
+              pass
+       except GitBranchCreationFailure:
+              pass
+       except GitPushFailure:
+              pass
+
+def check_deployment_answer(environment, answer):
+       if answer == "yes":
+              print_msg("#chamber-of-secrets", "GIT Push approved by "+ data['user_name'])
+       elif answer == "no":
+              print_msg("#chamber-of-secrets", "GIT Push denied by "+ data['user_name'])
+       else:
+              print_msg("#chamber-of-secrets", "Invalid command received. Accepted command '/qa_git_push_cmd yes or /qa_git_push_cmd no' ")
+'''
+# to handle msg in events
+@slack_event_adapter.on('message')
+def message(payload): # payload is the data sent by slack event
+       event = payload.get('event', {}) # looks for key work event, if not empty dict
+       channel_id= event.get('channel') # gets channel id
+       user_id= event.get('user')
+       text= event.get('text')
+       if user_id != bot_id: # to avoid the infinite loop
+              client.chat_postMessage(channel="#chamber-of-secrets", text=text)
+# adding end point to server
+@app.route('/qa_git_push_cmd',   methods=['GET','POST'])
+def qa_git_push():
+       data = request.form
+       check_deployment_answer('QA', data['text'].lower())
+       return Response(), 200
+@app.route('/integration_git_push_cmd',   methods=['GET','POST'])
+def int_git_push():
+       data = request.form
+       check_deployment_answer('Integration', data['text'].lower())
+       return Response(), 200
+@app.route('/uat_us_git_push_cmd',   methods=['GET','POST'])
+def uat_us_git_push():
+       data = request.form
+       check_deployment_answer('UAT US', data['text'].lower())
+       run_deployment_git_commands('us-uat')
+       return Response(), 200
+@app.route('/uat_zurich_git_push_cmd',   methods=['GET','POST'])
+def uat_zurich_git_push():
+       data = request.form
+       check_deployment_answer('UAT ZURICH', data['text'].lower())
+       run_deployment_git_commands('zurich-uat')
+       return Response(), 200 
+'''
 # to handle msg in events
 @slack_event_adapter.on('message')
 def message(payload): # payload is the data sent by slack event
@@ -144,23 +261,23 @@ def qa_git_push():
         if branch not in env_file['branches']:
           print_msg("#chamber-of-secrets",":ghost: Whoops!!! Couldnt find the branch '{}' in the list ".format(branch))
           return Response(), 200 
-
+        curr_branch = branch_list[branch]
         if cmd.lower() == "yes":              
           scheduletime=datetime.today().replace(hour=int(shour), minute=int(smin), second =0, microsecond=0)
-          jobid = s.enterabs(scheduletime.timestamp(), 1, execute_commands)
+          jobid = s.enterabs(scheduletime.timestamp(), 1, run_deployment_git_commands, argument = (branch,))
           t = threading.Thread(target=s.run)
           t.start()
-          curr_branch = branch_list[branch]
+          
           curr_branch.scheduled = True
           curr_branch.updated_by = data['user_name']
           curr_branch.scheduled_at = env_file['deploy_at']
           curr_branch.jobid = jobid
           curr_branch.timestamp = dt.datetime.now().strftime("%b %d %Y  %H:%M:%S")
+          curr_branch.deployed = None
           get_status(branch)
           print_msg("#chamber-of-secrets", " :ninja: GIT Push scheduled by "+ data['user_name'])
           #t.join()
         elif cmd.lower() == "no":
-          curr_branch = branch_list[branch]
           if curr_branch.scheduled:
             scheduletime=datetime.today().replace(hour=int(shour), minute=int(smin), second =0, microsecond=0)
             if scheduletime.timestamp() - dt.datetime.now().timestamp() >0:
@@ -168,6 +285,7 @@ def qa_git_push():
             curr_branch.scheduled = False
             curr_branch.updated_by = data['user_name']
             curr_branch.timestamp = dt.datetime.now().strftime("%b %d %Y  %H:%M:%S")
+            curr_branch.deployed = None
             get_status(branch)
             print_msg("#chamber-of-secrets", ":rooster: Git push scheduled cancelled by "+ data['user_name'])
           else:
@@ -175,7 +293,9 @@ def qa_git_push():
             print_msg("#chamber-of-secrets", ":shipit: Operation denied as the scheduled is cancelled by "+ data['user_name'])
         elif cmd.lower() == "now":
             print_msg("#chamber-of-secrets", ":shrug: Deploying the code now .... :man-running: :dash:")
-            execute_commands()
+            curr_branch.updated_by = data['user_name']
+            curr_branch.timestamp = dt.datetime.now().strftime("%b %d %Y  %H:%M:%S")
+            run_deployment_git_commands(branch)
         else:
             print_msg("#chamber-of-secrets", "Invalid command received. Accepted command '/qa_git_push_cmd <branch> yes or /qa_git_push_cmd <branch> no /qa_git_push_cmd <branch> now' ")
 
