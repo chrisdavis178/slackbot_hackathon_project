@@ -7,6 +7,7 @@ from flask import Flask, request, Response
 from slackeventsapi import SlackEventAdapter
 from datetime import datetime
 import pdb
+import smtplib
 
 env_file= json.load(open(Path('.')/'env.json'))
 app = Flask(__name__) # represents the name of the file 
@@ -91,7 +92,29 @@ def initialize_branch():
        branch_info = BranchInfo(b)
        branch_list[b] = branch_info
 
-def execute_cmds(command, shellenable=False):
+def send_email_notification(message):
+       try:
+              smtp = smtplib.SMTP('smtp.gmail.com',587)
+              smtp.ehlo()
+              smtp.starttls()
+              smtp.ehlo()
+              smtp.login('yyabijaiy@gmail.com', 'Bangalore@97')
+              subject = 'GIT PUSH STATUS'
+              body = message
+              msg = f'Subject: {subject}\n\n{body}'
+              smtp.sendmail('yyabijaiy@gmail.com', 'yyabijaiy@gmail.com', message)
+       except Exception as e:
+              print_msg("#chamber-of-secrets", str(e))
+
+def send_status_notification(return_status, branch_name, message = ""):
+       if return_status:
+              print_msg("#chamber-of-secrets", "GIT Push was successful from {}".format(branch_list[branch_name].updated_by))
+              # send_email_notification("GIT Push was successful from {} with following message {}".format(branch_list[branch_name].updated_by, message))
+       else:
+              print_msg("#chamber-of-secrets", "GIT Push failed from {} with Error {} ".format(branch_list[branch_name].updated_by, message))
+              # send_email_notification("GIT Push failed with Error {} ".format(branch_list[branch_name].updated_by, message))
+
+def execute_cmds(command, branch_name, shellenable=False):
     print ("INSIDE Executing")
     if not shellenable:
        cmd=shlex.split(command)
@@ -103,12 +126,13 @@ def execute_cmds(command, shellenable=False):
         out,err = query.communicate()
         print (str(out))
         if query.returncode!=0:
-            print("stderr:"+str(err.strip()) + " :stdout:" + str(out.strip()))
+            # print("stderr:"+str(err.strip()) + " :stdout:" + str(out.strip()))
             #return (query.returncode, "stderr:"+err.strip() + " :stdout:" + out.strip())
             raise CommandFailed
         else:
             return (0,out)
     except Exception as e:
+        send_status_notification(False, branch_name, str(err.strip()))
         query.terminate()
         raise CommandFailed
 
@@ -124,29 +148,30 @@ def git_commands(gitcmds):
                      print_msg("#chamber-of-secrets", "command failed "+str(out[1]))
                      break
        return status
-
+'''
 def push_changes():
        UAT_status = git_commands(env_file["US-UAT_commands"])
        #ZAT_status = git_commands(env_file["Zurich-UAT_commands"])
        #print("yes")
        if not UAT_status:
               print_msg("#chamber-of-secrets", "GIT push failed for US UAT ")
+'''
 
 def execute_commands():
   print_msg("#chamber-of-secrets","Excuting shell commands place holder ")
 
 def git_delete_branch(branch_name):
        try:
-              execute_cmds('git branch -d %s' % branch_name)
+              execute_cmds('git branch -d %s' % branch_name, branch_name)
        except:
               raise GitBranchDeletionFailure
 
 def git_checkout_branch(branch_name, create_branch_if_not_there=False):
        try:
               if create_branch_if_not_there:
-                     execute_cmds('git checkout -b %s' % branch_name)
+                     execute_cmds('git checkout -b %s' % branch_name, branch_name)
               else:
-                     execute_cmds('git checkout %s' % branch_name)
+                     execute_cmds('git checkout %s' % branch_name, branch_name)
        except:
               raise GitBranchCheckoutFailure
 
@@ -158,13 +183,13 @@ def git_create_branch(branch_name):
 
 def git_pull(branch_name):
        try:
-              execute_cmds('git pull origin %s' % branch_name)
+              execute_cmds('git pull origin %s' % branch_name, branch_name)
        except:
               raise GitPullFailure
 
 def git_push(branch_name):
        try:
-              execute_cmds('git push -f origin %s' % branch_name)
+              execute_cmds('git push -f origin %s' % branch_name, branch_name)
        except:
               raise GitPushFailure
 
@@ -176,7 +201,7 @@ def run_deployment_git_commands(branch_name):
               git_pull(MASTER_BRANCH)
               git_create_branch(branch_name)
               git_push(branch_name)
-
+              send_status_notification(True, branch_name)
               branch_list[branch_name].deployed = ':large_green_circle:'
        except GitBranchDeletionFailure:
               pass
@@ -189,6 +214,7 @@ def run_deployment_git_commands(branch_name):
        except GitPushFailure:
               pass
 
+'''
 def check_deployment_answer(environment, answer):
        if answer == "yes":
               print_msg("#chamber-of-secrets", "GIT Push approved by "+ data['user_name'])
@@ -196,7 +222,7 @@ def check_deployment_answer(environment, answer):
               print_msg("#chamber-of-secrets", "GIT Push denied by "+ data['user_name'])
        else:
               print_msg("#chamber-of-secrets", "Invalid command received. Accepted command '/qa_git_push_cmd yes or /qa_git_push_cmd no' ")
-'''
+
 # to handle msg in events
 @slack_event_adapter.on('message')
 def message(payload): # payload is the data sent by slack event
